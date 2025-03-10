@@ -3,22 +3,30 @@ import gymnasium as gym
 import random
 import time
 import matplotlib.pyplot as plt
+import os
 
-# Configurar el entorno FrozenLake con slippery=True
-env = gym.make("FrozenLake-v1", is_slippery=True, render_mode=None)
+# Configuración del entorno FrozenLake con mapa aleatorio
+env = gym.make("FrozenLake-v1", desc=None, is_slippery=True, render_mode=None)
 
-alpha = 0.5      # Tasa de aprendizaje más alta
-gamma = 0.9      # Factor de descuento ligeramente menor
-epsilon = 1.0    # Explorar al inicio
-epsilon_decay = 0.997  # Reducir exploración más lento
-epsilon_min = 0.1      # Mantener exploración mínima decente
-episodes = 10000  # Aumentar el número de episodios
+# Hiperparámetros
+alpha = 0.5        # Tasa de aprendizaje
+gamma = 0.9        # Factor de descuento
+epsilon = 1.0      # Probabilidad inicial de exploración
+epsilon_decay = 0.997  # Tasa de reducción de epsilon
+epsilon_min = 0.1  # Mínimo valor de epsilon
+episodes = 10000   # Número de episodios de entrenamiento
+q_table_file = "q_table.npy"  # Archivo para guardar la Q-table
 
-# Inicializar la Q-table con ceros
-q_table = np.zeros([env.observation_space.n, env.action_space.n])
+# Inicializar Q-table (cargar si existe)
+if os.path.exists(q_table_file):
+    q_table = np.load(q_table_file)
+    print("Q-table cargada correctamente.")
+else:
+    q_table = np.zeros([env.observation_space.n, env.action_space.n])
 
-# Lista para almacenar las recompensas de cada episodio
+# Listas para almacenar métricas
 rewards = []
+average_rewards = []
 
 # Entrenamiento del agente
 for episode in range(episodes):
@@ -27,50 +35,56 @@ for episode in range(episodes):
     total_reward = 0
 
     while not done:
-        # Política epsilon-greedy
+        # Estrategia epsilon-greedy
         if random.uniform(0, 1) < epsilon:
             action = env.action_space.sample()  # Exploración
         else:
             action = np.argmax(q_table[state])  # Explotación
 
-        # Tomar acción y recibir recompensa
+        # Ejecutar acción y obtener recompensa
         next_state, reward, done, _, _ = env.step(action)
 
-        # Actualización de la Q-table con la ecuación de Q-learning
+        # Actualizar la Q-table con la ecuación de Q-learning
         q_table[state, action] = (1 - alpha) * q_table[state, action] + alpha * (reward + gamma * np.max(q_table[next_state]))
 
         state = next_state
         total_reward += reward
 
-    # Guardar la recompensa obtenida en este episodio
+    # Guardar recompensa obtenida en este episodio
     rewards.append(total_reward)
 
-    # Reducir epsilon para favorecer explotación sobre exploración con el tiempo
+    # Reducir epsilon gradualmente
     epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
-    # Mostrar progreso
+    # Calcular promedio de recompensas cada 500 episodios
     if (episode + 1) % 500 == 0:
-        print(f"Episodio {episode + 1}/{episodes}, Epsilon: {epsilon:.4f}")
+        avg_reward = np.mean(rewards[-500:])
+        average_rewards.append(avg_reward)
+        print(f"Episodio {episode + 1}/{episodes}, Epsilon: {epsilon:.4f}, Promedio de recompensa: {avg_reward:.3f}")
 
-print("Entrenamiento completado.\n")
+# Guardar la Q-table entrenada
+np.save(q_table_file, q_table)
+print("Entrenamiento completado y Q-table guardada.\n")
 
 # Graficar la evolución de recompensas
-plt.plot(rewards)
+plt.plot(rewards, alpha=0.5, label="Recompensas por episodio")
+plt.plot(range(500, episodes+1, 500), average_rewards, marker="o", linestyle="--", color="r", label="Promedio cada 500 episodios")
 plt.xlabel('Episodios')
 plt.ylabel('Recompensa')
-plt.title('Recompensa obtenida por episodio')
+plt.title('Evolución del aprendizaje del agente')
+plt.legend()
 plt.show()
 
 # Evaluación del agente entrenado
-env = gym.make("FrozenLake-v1", is_slippery=True, render_mode="human")  # Cargar entorno con visualización
+env = gym.make("FrozenLake-v1", desc=None, is_slippery=True, render_mode="human")
 state, _ = env.reset()
 done = False
 
 print("Ejecutando agente entrenado...")
 
 while not done:
-    action = np.argmax(q_table[state])
+    action = np.argmax(q_table[state])  # Tomar la mejor acción aprendida
     state, _, done, _, _ = env.step(action)
-    time.sleep(0.5)  # Pausa para ver el movimiento
+    time.sleep(0.5)  # Pausa para visualización
 
 env.close()
